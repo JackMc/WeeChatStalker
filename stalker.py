@@ -15,7 +15,7 @@ try:
 except:
     print('This script must be run under WeeChat.')
     print('Get WeeChat now at: http://www.weechat.org/')
-    import_ok = True
+    import_ok = False
 
 try:
     import sqlite3
