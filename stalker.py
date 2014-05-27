@@ -96,17 +96,22 @@ def stalk_nick_cb(data, signal, signal_data):
         who_cache[newnick + server] = who_cache[oldnick + server]
         del who_cache[oldnick + server]
 
-    return w.WEECHAT_RC_OK
+    return stalk_cb(data, signal, signal_data)
 
 def stalk_quit_cb(data, signal, signal_data):
     server = signal.split(',')[0]
+    hostname = signal_data.split(' ')[0].split('@')[-1]
     nick = w.info_get('irc_nick_from_host', signal_data.split(' ')[0])
     global who_cache
 
     if (nick + server) in who_cache:
         del who_cache[nick + server]
 
-    return stalk_cb(data, signal, signal_data)
+    val = stalk_cb(data, signal, signal_data)
+
+    add_data(server, hostname, nick)
+
+    return val
     
 
 def stalk_cb(data, signal, signal_data):
