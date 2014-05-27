@@ -10,8 +10,6 @@ STALKER_CMD = "stalker"
 
 STALKER_DIR_NAME = 'stalker'
 STALKER_DB_NAME = 'stalker.db'
-# Use a symbol not used in IRC.
-CACHE_SEPARATOR = '^^'
 
 try:
     import weechat as w
@@ -29,21 +27,6 @@ except:
 # Basic part of Python interpreter
 import os
 import traceback
-
-hosts_cache = None
-
-class Host(object):
-    def __init__(self, id, server, hostname, *nicks):
-        self.hostname = hostname
-        self.server = server
-        self.nicks = list(nicks)
-        self.id = id
-
-    def add_nick(self, nick):
-        self.nicks.append(nick)
-
-    def __repr__(self):
-        return '(%s, %s, %s)' % (self.hostname, self.server, repr(self.nicks))
 
 def stalker_init():
     w.mkdir_home(STALKER_DIR_NAME, 0755)
@@ -73,45 +56,33 @@ def stalker_load_db():
         conn.commit()
         cur.close()
 
-def read_hosts():
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM hosts')
-
-    global hosts_cache
-
-    hosts_cache = {}
-    rows = cur.fetchall()
-    
-    for row in rows:
-        nick_cur = conn.cursor()
-        nick_cur.execute('SELECT nick from nicks WHERE host_id = %d' % row[0])
-        
-        nicks = [r[0] for r in nick_cur.fetchall()]
-
-        hosts_cache[row[1] + CACHE_SEPARATOR + row[2]] = Host(row[0], row[1], row[2], *nicks)
-        nick_cur.close()
-
-    cur.close()
-
 def add_data(server, hostname, nick):
-    if not hosts_cache:
-        read_hosts()
+    sel_cur = conn.cursor()
+    sel_cur.execute('SELECT id FROM hosts WHERE server = "%s" and host = "%s"' % (server, hostname))
+    rows = sel_cur.fetchall()
+    count = len(rows)
 
-    if (server + CACHE_SEPARATOR + hostname) in hosts_cache:
-        host = hosts_cache[server + CACHE_SEPARATOR + hostname]
+    if count:
+        # Get the id of the host we're associated with
+        id = rows[0][0]
+
+        nick_checkcur = conn.cursor()
+        nick_checkcur.execute('SELECT COUNT(*) FROM nicks WHERE host_id = %d AND nick = "%s"' % (id, nick))
+        
         cur = conn.cursor()
-        if nick not in host.nicks:
-            cur.execute('INSERT INTO nicks (host_id, nick) VALUES ( "%s", "%s" )' % (host.id, nick))
-            host.add_nick(nick)
+        if not nick_checkcur.fetchone()[0]:
+            cur.execute('INSERT INTO nicks (host_id, nick) VALUES ( "%s", "%s" )' % (id, nick))
         conn.commit()
         cur.close()
+        nick_checkcur.close()
     else:
         cur = conn.cursor()
         cur.execute('INSERT INTO hosts (server, host) VALUES ( "%s", "%s" )' % (server, hostname))
-        hosts_cache[server + CACHE_SEPARATOR + hostname] = Host(cur.lastrowid, server, hostname, nick)
         cur.execute('INSERT INTO nicks (host_id, nick) VALUES ( "%s", "%s" )' % (cur.lastrowid, nick))
         conn.commit()
         cur.close()
+    
+    sel_cur.close()
 
 def stalk_cb(data, signal, signal_data):
     hostmask = signal_data.split(' ')[0]
@@ -127,12 +98,16 @@ def stalk_cb(data, signal, signal_data):
 
 ## The bottom half of the stalker command. Does the real work.
 def stalker_cmd_bottom(buffer, server, hostname):
-    if not hosts_cache:
-        read_hosts()
-    
-    if hostname in hosts_cache:
-        w.prnt(buffer, 'Nicknames: %s' % repr(hosts[hostname].nicks))
-        return w.WEECHAT_RC_OK
+    cur = conn.cursor()
+    cur.execute(('SELECT nicks.nick FROM nicks, hosts'
+                ' WHERE hosts.server = "%s" AND hosts.host = "%s"'
+                ' AND nicks.host_id = hosts.id') % (server, hostname))
+
+    rows = cur.fetchall()
+
+    if len(rows):
+        w.prnt(buffer, 'Nicknames: %s' % repr(rows))
+        return w.WEECHAT_RC_OK_EAT
     else:
         w.prnt(buffer, 'Could not find username.')
         return w.WEECHAT_RC_ERROR
@@ -143,10 +118,13 @@ def stalker_cmd_cb(data, signal, hashtable):
         return w.WEECHAT_RC_ERROR
 
     # Look for a code 352
-    line = next(s for s in hashtable['output'].split('\n') if s.split()[1] == '352')
-    w.prnt(data, line)
+    try:
+        line = next(s for s in hashtable['output'].split('\n') if s.split()[1] == '352')
+    except:
+        return w.WEECHAT_RC_OK_EAT
+
     if not line:
-        return w.WEECHAT_RC_EAT_OK
+        return w.WEECHAT_RC_OK_EAT
     server = w.buffer_get_string(data, "localvar_server")
     hostname = line.split()[5]
 
