@@ -30,6 +30,10 @@ import traceback
 
 who_cache = {}
 
+def who_cache_update(nick, server, hostname):
+    global who_cache
+    who_cache[nick + server] = hostname
+
 def stalker_init():
     w.mkdir_home(STALKER_DIR_NAME, 0755)
 
@@ -109,8 +113,6 @@ def stalk_quit_cb(data, signal, signal_data):
 
     val = stalk_cb(data, signal, signal_data)
 
-    add_data(server, hostname, nick)
-
     return val
     
 
@@ -119,8 +121,9 @@ def stalk_cb(data, signal, signal_data):
     hostname = hostmask.split('@')[1]
     server = signal.split(',')[0]
     nick = w.info_get('irc_nick_from_host', hostmask)
-
-    add_data(server, hostname, nick)
+    if (nick + server) not in who_cache:
+        who_cache_update(nick, server, hostname)
+        add_data(server, hostname, nick)
 
     return w.WEECHAT_RC_OK
 
@@ -157,8 +160,7 @@ def stalker_cmd_cb(data, signal, hashtable):
     nick = split[4]
     server = w.buffer_get_string(data, "localvar_server")
     hostname = split[5]
-
-    who_cache[nick + server] = hostname
+    who_cache_update(nick, server, hostname)
 
     return stalker_cmd_bottom(data, server, hostname)
 
@@ -173,14 +175,29 @@ def stalker_cmd(data, buffer, args):
     if '@' in args:
         stalker_cmd_bottom(buffer, server, args.split('@')[-1])
     else:
-        if (args + server) in who_cache:
-            stalker_cmd_bottom(buffer, server, who_cache[args + server])
+        # Check if the user's in our database already.
+        cur = conn.cursor()
+        cur.execute('SELECT host_id FROM nicks WHERE nick = "%s"' % (args))
+        rows = cur.fetchall()
+        cur.close()
+
+        if len(rows):
+            host_id = rows[0][0]
+            cur = conn.cursor()
+            cur.execute('SELECT host FROM hosts WHERE id = %d' % host_id)
+            hostname = cur.fetchone()[0]
+            who_cache_update(args, server, hostname)
+            stalker_cmd_bottom(buffer, server, hostname)
+            cur.close()
         else:
-            w.hook_hsignal ("irc_redirection_stalker_who", "stalker_cmd_cb", buffer)
-            w.hook_hsignal_send("irc_redirect_command",
-                                      { "server": server, "pattern": "who", "signal": "stalker" })
-            w.hook_signal_send("irc_input_send", w.WEECHAT_HOOK_SIGNAL_STRING,
-                                     ("%s;;2;;/who %s") % (server, args))
+            if (args + server) in who_cache:
+                stalker_cmd_bottom(buffer, server, who_cache[args + server])
+            else:
+                w.hook_hsignal ("irc_redirection_stalker_who", "stalker_cmd_cb", buffer)
+                w.hook_hsignal_send("irc_redirect_command",
+                                          { "server": server, "pattern": "who", "signal": "stalker" })
+                w.hook_signal_send("irc_input_send", w.WEECHAT_HOOK_SIGNAL_STRING,
+                                         ("%s;;2;;/who %s") % (server, args))
         
     return w.WEECHAT_RC_OK
 
@@ -216,3 +233,4 @@ if __name__ == '__main__' and import_ok:
         w.hook_signal("*,irc_in2_part", "stalk_cb", "")
         w.hook_signal("*,irc_in2_quit", "stalk_quit_cb", "")
         w.hook_signal("*,irc_in2_nick", "stalk_nick_cb", "")
+        w.hook_signal("*,irc_in2_privmsg", "stalk_cb", "")
