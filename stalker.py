@@ -137,7 +137,7 @@ def stalker_cmd_bottom(buffer, server, hostname):
     rows = cur.fetchall()
 
     if len(rows):
-        w.prnt(buffer, 'Nicknames: %s' % repr(rows))
+        w.prnt(buffer, 'Nicknames: %s' % ', '.join([r[0] for r in rows]))
         return w.WEECHAT_RC_OK_EAT
     else:
         w.prnt(buffer, 'Could not find username.')
