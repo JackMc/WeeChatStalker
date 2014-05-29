@@ -92,14 +92,14 @@ def add_data(server, hostname, nick):
 
 def stalk_nick_cb(data, signal, signal_data):
     split = signal_data.split(' ')
-    newnick = split[2]
+    newnick = split[2][1:] if split[2].startswith(':') else split[2]
     oldnick = w.info_get('irc_nick_from_host', split[0])
     server = signal.split(',')[0]
 
     if (oldnick + server) in who_cache:
-        who_cache[newnick + server] = who_cache[oldnick + server]
-        del who_cache[oldnick + server]
-
+        add_data(server, who_cache[oldnick + server], newnick)
+    else:
+        add_data(server, split[0].split('@')[-1], newnick)
     return stalk_cb(data, signal, signal_data)
 
 def stalk_quit_cb(data, signal, signal_data):
