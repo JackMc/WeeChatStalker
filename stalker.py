@@ -128,13 +128,16 @@ def stalk_cb(data, signal, signal_data):
     return w.WEECHAT_RC_OK
 
 ## The bottom half of the stalker command. Does the real work.
-def stalker_cmd_bottom(buffer, server, hostname):
+def stalker_cmd_bottom(buffer, server, hostnames):
     cur = conn.cursor()
-    cur.execute(('SELECT nicks.nick FROM nicks, hosts'
-                ' WHERE hosts.server = "%s" AND hosts.host = "%s"'
-                ' AND nicks.host_id = hosts.id') % (server, hostname))
+    rows = []
 
-    rows = cur.fetchall()
+    for hostname in hostnames:
+        cur.execute(('SELECT nicks.nick FROM nicks, hosts'
+                     ' WHERE hosts.server = "%s" AND hosts.host = "%s"'
+                     ' AND nicks.host_id = hosts.id') % (server, hostname))
+
+        rows += cur.fetchall()
 
     if len(rows):
         w.prnt(buffer, 'Nicknames: %s' % ', '.join([r[0] for r in rows]))
@@ -185,9 +188,10 @@ def stalker_cmd(data, buffer, args):
             host_id = rows[0][0]
             cur = conn.cursor()
             cur.execute('SELECT host FROM hosts WHERE id = %d' % host_id)
-            hostname = cur.fetchone()[0]
-            who_cache_update(args, server, hostname)
-            stalker_cmd_bottom(buffer, server, hostname)
+            hostnames = [c[0] for c in cur.fetchall()]
+            for hostname in hostnames:
+                who_cache_update(args, server, hostname)
+            stalker_cmd_bottom(buffer, server, hostnames)
             cur.close()
         else:
             if (args + server) in who_cache:
@@ -214,9 +218,9 @@ if __name__ == '__main__' and import_ok:
         stalker_init()
         try:
             stalker_load_db()
-        except:
+        except Exception as e:
             traceback.print_exc()
-            w.prnt('', '%s could not load database. Unloading script.' % SCRIPT_NAME)
+            w.prnt('', '%s could not load database: %s. Unloading script.' % (SCRIPT_NAME, str(e)))
             # Commit honourable script-icide
             w.hook_signal_send('python_script_remove',
                                      w.WEECHAT_HOOK_SIGNAL_STRING,
