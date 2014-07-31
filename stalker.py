@@ -1,7 +1,7 @@
 import_ok = True
 
 SCRIPT_NAME = "stalker"
-SCRIPT_AUTHOR = "Auv"
+SCRIPT_AUTHOR = "JackMc"
 SCRIPT_VERSION = "0.01"
 SCRIPT_LICENSE = "GPL3"
 SCRIPT_DESC = "A simple-to-use stalker script for WeeChat."
